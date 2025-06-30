@@ -17,17 +17,25 @@ from discord import app_commands
 from discord.ext import commands
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
-# ───── Configuración de roles y canal de anuncio ─────
-ALLOWED_ROLE_IDS    = [1353412512208388189, 1368672997778391040]  # IDs de roles autorizados
-ANNOUNCE_CHANNEL_ID = 1368950726453366854                       # ID del canal donde anunciar nuevos DNIs
+ADMIN_ROLE_IDS    = [1353412512208388189, 1353412517514449049]  # IDs de admins
+POLICE_ROLE_IDS   = [1370000000000000000]                      # ID del rol "policías"
+ANNOUNCE_CHANNEL_ID = [1353412567589982330, 1353412547558248571]
 
-def tiene_rol(inter: discord.Interaction) -> bool:
+def tiene_rol_admin(inter: discord.Interaction) -> bool:
     if not isinstance(inter.user, discord.Member):
         return False
-    return any(r.id in ALLOWED_ROLE_IDS for r in inter.user.roles)
+    return any(r.id in ADMIN_ROLE_IDS for r in inter.user.roles)
 
-def solo_autorizados():
-    return app_commands.check(lambda inter: tiene_rol(inter))
+def tiene_rol_policia(inter: discord.Interaction) -> bool:
+    if not isinstance(inter.user, discord.Member):
+        return False
+    return any(r.id in POLICE_ROLE_IDS for r in inter.user.roles) or tiene_rol_admin(inter)
+
+def solo_admin():
+    return app_commands.check(lambda inter: tiene_rol_admin(inter))
+
+def solo_policia():
+    return app_commands.check(lambda inter: tiene_rol_policia(inter))
 
 # ───── Persistencia JSON ─────
 DNI_FILE   = "dni_data.json"
@@ -117,7 +125,6 @@ class CrearDNIModal(discord.ui.Modal, title="Registrar DNI"):
                 emb.add_field(name=k.capitalize(), value=data.get(k,"—"), inline=False)
             await canal.send(embed=emb)
 
-            # ───── Modal para añadir DNI a otro usuario (solo admins) ─────
 class AñadirDNIModal(discord.ui.Modal, title="Registrar DNI para usuario"):
     nombre     = discord.ui.TextInput(label="Nombre", max_length=30)
     apellidos  = discord.ui.TextInput(label="Apellidos", max_length=60)
@@ -131,7 +138,6 @@ class AñadirDNIModal(discord.ui.Modal, title="Registrar DNI para usuario"):
         self.uid    = str(target.id)
 
     async def on_submit(self, interaction: discord.Interaction):
-        # (Repite aquí las validaciones idénticas a CrearDNIModal)
         nom, ape = self.nombre.value.strip(), self.apellidos.value.strip()
         dni_, nac = self.dni.value.strip().upper(), self.nacimiento.value.strip()
         try:
@@ -150,7 +156,6 @@ class AñadirDNIModal(discord.ui.Modal, title="Registrar DNI para usuario"):
             "caducidad":    datetime.date.today().replace(year=datetime.date.today().year + 10).strftime("%d/%m/%Y")
         }
 
-        # Validaciones
         if not re.fullmatch(r"\d{9}[A-Z]", data["dni"]):
             return await interaction.response.send_message("❌ DNI inválido.", ephemeral=True)
         if sexo not in {"H", "M"}:
@@ -161,7 +166,6 @@ class AñadirDNIModal(discord.ui.Modal, title="Registrar DNI para usuario"):
             if rec["dni"] == data["dni"]:
                 return await interaction.response.send_message("❌ Ese DNI ya existe.", ephemeral=True)
 
-        # Guardar y anunciar
         dni_db[self.uid] = data
         save_json(DNI_FILE, dni_db)
         await interaction.response.send_message(f"✅ DNI registrado para {self.target.mention}.", ephemeral=True)
@@ -333,7 +337,7 @@ async def creardni(interaction: discord.Interaction):
         return await interaction.response.send_message("Ya tienes DNI. Usa /verdni.", ephemeral=True)
     await interaction.response.send_modal(CrearDNIModal())
 
-@solo_autorizados()
+@solo_admin()
 @bot.tree.command(name="añadirdni", description="Añade DNI a otro usuario.")
 @app_commands.describe(usuario="Usuario destinatario del DNI")
 async def anadirdni(interaction: discord.Interaction, usuario: discord.Member):
@@ -351,13 +355,13 @@ async def verdni(interaction: discord.Interaction):
         emb.add_field(name=k.capitalize(), value=rec.get(k,"—"), inline=False)
     await interaction.response.send_message(embed=emb, ephemeral=True)
 
-@solo_autorizados()
+@solo_policia()
 @bot.tree.command(name="crearantecedentes", description="Registrar antecedente.")
 @app_commands.describe(usuario="Usuario afectado")
 async def crearantecedentes(interaction: discord.Interaction, usuario: discord.Member):
     await interaction.response.send_modal(CrearAntecedenteModal(usuario.id))
 
-@solo_autorizados()
+@solo_admin()
 @app_commands.choices(
     quitar_todos=[app_commands.Choice(name="Si", value="Si"),
                   app_commands.Choice(name="No", value="No")]
@@ -370,13 +374,13 @@ async def quitarantecedentes(interaction: discord.Interaction, usuario: discord.
     else:
         await interaction.response.send_modal(QuitarUnoModal(usuario))
 
-@solo_autorizados()
+@solo_admin()
 @bot.tree.command(name="reseteardni", description="Eliminar DNI de un usuario.")
 @app_commands.describe(usuario="Usuario cuyo DNI eliminarás")
 async def reseteardni(interaction: discord.Interaction, usuario: discord.Member):
     await interaction.response.send_modal(ResetDNIModal(usuario))
 
-@solo_autorizados()
+@solo_policia()
 @bot.tree.command(name="fichapolicia", description="Ficha policial de un usuario.")
 @app_commands.describe(usuario="Usuario a consultar")
 async def fichapolicia(interaction: discord.Interaction, usuario: discord.Member):
@@ -391,7 +395,7 @@ async def fichapolicia(interaction: discord.Interaction, usuario: discord.Member
     else:
         await interaction.response.send_message(embed=emb, ephemeral=True)
 
-@solo_autorizados()
+@solo_policia()
 @bot.tree.command(name="fichapolicial", description="Alias para /fichapolicia")
 @app_commands.describe(usuario="Usuario a consultar")
 async def fichapolicial(interaction: discord.Interaction, usuario: discord.Member):
@@ -406,7 +410,7 @@ async def ensenardni(interaction: discord.Interaction, usuario: discord.Member, 
     dm = usuario.dm_channel or await usuario.create_dm()
     emb = discord.Embed(
         title="🔔 Solicitud de DNI",
-        description=(
+        description=(  
             f"El señor **{interaction.user.display_name}** solicita ver tu DNI.\n"
             "¿Aceptas compartirlo? No se hará ping a nadie."
         ),
@@ -417,6 +421,5 @@ async def ensenardni(interaction: discord.Interaction, usuario: discord.Member, 
 
 # ───── Arranque del bot ─────
 if __name__ == "__main__":
-    # Inserta tu token directamente aquí:
     webserver.keep_alive()
     bot.run(DISCORD_TOKEN)
