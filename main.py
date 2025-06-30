@@ -18,8 +18,8 @@ from discord.ext import commands
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
 ADMIN_ROLE_IDS    = [1353412512208388189, 1353412517514449049]  # IDs de admins
-POLICE_ROLE_IDS   = [1370000000000000000]                      # ID del rol "policías"
-ANNOUNCE_CHANNEL_ID = [1353412567589982330, 1353412547558248571]
+POLICE_ROLE_IDS   = [1353412567589982330, 1353412547558248571]                      # ID del rol "policías"
+ANNOUNCE_CHANNEL_ID = 1368950726453366854
 
 def tiene_rol_admin(inter: discord.Interaction) -> bool:
     if not isinstance(inter.user, discord.Member):
